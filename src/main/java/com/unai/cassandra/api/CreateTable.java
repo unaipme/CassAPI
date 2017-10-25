@@ -8,21 +8,18 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import static com.unai.cassandra.api.DataType.*;
+
 public class CreateTable {
 
     private CassandraClient client;
     private String tableName;
-    private Map<String, String> columns;
+    private Map<String, DataType> columns;
     private Set<String> partitionKeys;
     private Set<String> clusteringKeys;
     private boolean ifNotExists = false;
 
     private String lastColumn = null;
-
-    private final static String BOOLEAN = " BOOLEAN ";
-    private final static String BIGINT = " BIGINT ";
-    private final static String DOUBLE = " DOUBLE ";
-    private final static String STRING = " TEXT ";
 
     CreateTable(String name, CassandraClient client) {
         this.tableName = name;
@@ -56,7 +53,13 @@ public class CreateTable {
     }
 
     public CreateTable withStringColumn(String name) {
-        columns.put(name, STRING);
+        columns.put(name, TEXT);
+        this.lastColumn = name;
+        return this;
+    }
+
+    public CreateTable withCounterColumn(String name){
+        columns.put(name, COUNTER);
         this.lastColumn = name;
         return this;
     }
@@ -99,7 +102,7 @@ public class CreateTable {
         return partitionKeys.contains(name) || clusteringKeys.contains(name);
     }
 
-    public void save() {
+    public void commit() {
         client.createTable_internal(this);
     }
 
@@ -107,7 +110,7 @@ public class CreateTable {
         return tableName;
     }
 
-    Map<String, String> getColumns() {
+    Map<String, DataType> getColumns() {
         return columns;
     }
 

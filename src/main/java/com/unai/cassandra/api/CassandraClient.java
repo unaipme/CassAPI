@@ -1,17 +1,15 @@
 package com.unai.cassandra.api;
 
 import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
+import com.unai.cassandra.api.data.Table;
 import com.unai.cassandra.api.exception.HostUndefinedException;
 import com.unai.cassandra.api.exception.KeyspaceUndefinedException;
-import com.unai.cassandra.api.exception.TableUndefinedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 import static com.datastax.driver.core.Cluster.Builder;
@@ -37,6 +35,7 @@ public class CassandraClient implements AutoCloseable {
         for (String a : addrs) b.addContactPoint(a);
         this.cluster = b.build();
         this.session = cluster.connect();
+        Locale.setDefault(Locale.ENGLISH);
     }
 
     public void createKeyspace(String name) {
@@ -53,6 +52,8 @@ public class CassandraClient implements AutoCloseable {
 
     public void useKeyspace(String name) {
         if (name.equals(currentKS)) return;
+        if (!cluster.getMetadata().getKeyspaces().stream().anyMatch(k -> k.getName().equals(name)))
+            throw new KeyspaceUndefinedException(name);
         this.currentKS = name;
         log.info("Using keyspace {}", name);
     }
@@ -67,33 +68,30 @@ public class CassandraClient implements AutoCloseable {
         return new InsertRow(tableName, this);
     }
 
-    public Map<String, String> describeTable(String tableName) {
+    public Table describeTable(String tableName) {
         if (currentKS == null) throw new KeyspaceUndefinedException();
         log.info("Looking for description of table {}", tableName);
-        List<ColumnMetadata> cols;
-        try {
-            cols = cluster.getMetadata().getKeyspace(currentKS).getTable(tableName).getColumns();
-        } catch (NullPointerException e) {
-            throw new TableUndefinedException(tableName);
-        }
-        Map<String, String> table = new HashMap<>();
-        cols.forEach(c -> {
-            table.put(c.getName(), c.getType().getName().name());
-            log.info("\tColumn {} of type {}", c.getName(), c.getType().getName().name());
-        });
+        Table table = Table.load(cluster, tableName, currentKS);
         log.info("Done");
         return table;
     }
 
+    public DropTable dropTable(String tableName) {
+        return new DropTable(tableName, this);
+    }
+
+    public UpdateRow update(String tableName) {
+        return new UpdateRow(tableName, this);
+    }
+
     void createTable_internal(CreateTable ct) {
         log.info("Creating table {} with columns:", ct.getTableName());
-       //StringBuilder sb = new StringBuilder(String.format("CREATE TABLE IF NOT EXISTS %s.%s (", currentKS, name));
         StringBuilder sb = new StringBuilder("CREATE TABLE ");
         if (ct.isIfNotExists()) sb.append("IF NOT EXISTS ");
         sb.append(String.format("%s.%s (", currentKS, ct.getTableName()));
         ct.getColumns().forEach((k, v) -> {
-            log.info("\t {} {}", k, v.trim());
-            sb.append(String.format("%s %s,", k, v));
+            log.info("\t {} {}", k, v.type().trim());
+            sb.append(String.format("%s %s,", k, v.type()));
         });
         sb.append(String.format("PRIMARY KEY ((%s)", ct.getPartitionKeys()
                 .stream()
@@ -107,8 +105,8 @@ public class CassandraClient implements AutoCloseable {
     }
 
     void insertInto_internal(InsertRow i) {
-        StringBuilder sb = new StringBuilder(String.format("INSERT INTO %s.%s ", currentKS, i.getTableName()));
         log.info("Inserting into table {}.{}", currentKS, i.getTableName());
+        StringBuilder sb = new StringBuilder(String.format("INSERT INTO %s.%s ", currentKS, i.getTableName()));
         i.getValues().forEach((k, v) -> log.info("\t{} = {}", k, v));
         sb.append("(" + i.getValues().keySet().stream().collect(Collectors.joining(",")) + ")");
         sb.append(" VALUES (" + i.getValues().values()
@@ -118,6 +116,39 @@ public class CassandraClient implements AutoCloseable {
         log.debug(sb.toString());
         session.execute(sb.toString());
         log.info("The row has been successfully inserted");
+    }
+
+    void dropTable_internal(DropTable d) {
+        log.info("Dropping table {}", d.getTableName());
+        StringBuilder sb = new StringBuilder("DROP TABLE ");
+        if (d.isIfExists()) sb.append("IF EXISTS ");
+        sb.append(String.format("%s.%s", currentKS, d.getTableName()));
+        log.debug(sb.toString());
+        session.execute(sb.toString());
+        log.info("The table has been dropped");
+    }
+
+    void update_interal(UpdateRow u) {
+        log.info("Updating row from table {}.{}", currentKS, u.getTableName());
+        StringBuilder sb = new StringBuilder(String.format("UPDATE %s.%s SET ", currentKS, u.getTableName()));
+        sb.append(u.getUpdates()
+                .entrySet()
+                .stream()
+                .map((e) -> String.format("%s=%s", e.getKey(), e.getValue().toString()))
+                .collect(Collectors.joining(",")));
+        if (!u.getConditions().isEmpty()) sb.append(" WHERE ");
+        sb.append(u.getConditions().stream().collect(Collectors.joining(" ")));
+        log.debug(sb.toString());
+        session.execute(sb.toString());
+        log.info("Done");
+    }
+
+    Session getSession() {
+        return this.session;
+    }
+
+    Cluster getCluster() {
+        return this.cluster;
     }
 
     @Override
