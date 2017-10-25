@@ -3,6 +3,7 @@ package com.unai.cassandra.api;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.ColumnMetadata;
 import com.datastax.driver.core.Session;
+import com.unai.cassandra.api.exception.HostUndefinedException;
 import com.unai.cassandra.api.exception.KeyspaceUndefinedException;
 import com.unai.cassandra.api.exception.TableUndefinedException;
 import org.slf4j.Logger;
@@ -11,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.datastax.driver.core.Cluster.Builder;
@@ -32,6 +32,7 @@ public class CassandraClient implements AutoCloseable {
             "WITH replication = {'class':'%s','replication_factor':%d};";
 
     public CassandraClient(String... addrs) {
+        if (addrs.length == 0) throw new HostUndefinedException();
         Builder b = Cluster.builder();
         for (String a : addrs) b.addContactPoint(a);
         this.cluster = b.build();
@@ -51,14 +52,14 @@ public class CassandraClient implements AutoCloseable {
     }
 
     public void useKeyspace(String name) {
+        if (name.equals(currentKS)) return;
         this.currentKS = name;
         log.info("Using keyspace {}", name);
-        session.execute(String.format("USE %s", name));
     }
 
-    public CreateTable createTable(String name) {
+    public CreateTable createTable(String tableName) {
         if (currentKS == null) throw new KeyspaceUndefinedException();
-        return new CreateTable(name, this);
+        return new CreateTable(tableName, this);
     }
 
     public InsertRow insertInto(String tableName) {
@@ -69,7 +70,7 @@ public class CassandraClient implements AutoCloseable {
     public Map<String, String> describeTable(String tableName) {
         if (currentKS == null) throw new KeyspaceUndefinedException();
         log.info("Looking for description of table {}", tableName);
-        List<ColumnMetadata> cols = null;
+        List<ColumnMetadata> cols;
         try {
             cols = cluster.getMetadata().getKeyspace(currentKS).getTable(tableName).getColumns();
         } catch (NullPointerException e) {
@@ -84,25 +85,33 @@ public class CassandraClient implements AutoCloseable {
         return table;
     }
 
-    void createTable_internal(String name, Map<String, String> cols, Set<String> pks) {
-        final StringBuilder sb = new StringBuilder(String.format("CREATE TABLE IF NOT EXISTS %s (", name));
-        log.info("Creating table {} with columns:", name);
-        cols.forEach((k, v) -> {
+    void createTable_internal(CreateTable ct) {
+        log.info("Creating table {} with columns:", ct.getTableName());
+       //StringBuilder sb = new StringBuilder(String.format("CREATE TABLE IF NOT EXISTS %s.%s (", currentKS, name));
+        StringBuilder sb = new StringBuilder("CREATE TABLE ");
+        if (ct.isIfNotExists()) sb.append("IF NOT EXISTS ");
+        sb.append(String.format("%s.%s (", currentKS, ct.getTableName()));
+        ct.getColumns().forEach((k, v) -> {
             log.info("\t {} {}", k, v.trim());
             sb.append(String.format("%s %s,", k, v));
         });
-        sb.append(String.format("PRIMARY KEY (%s) );", pks.stream().collect(Collectors.joining(","))));
-        log.info(sb.toString());
+        sb.append(String.format("PRIMARY KEY ((%s)", ct.getPartitionKeys()
+                .stream()
+                .collect(Collectors.joining(","))));
+        if (!ct.getClusteringKeys().isEmpty())
+            sb.append(", " + ct.getClusteringKeys().stream().collect(Collectors.joining(",")));
+        sb.append("));");
+        log.debug(sb.toString());
         session.execute(sb.toString());
         log.info("The table has been created");
     }
 
-    void insertInto_internal(String tableName, Map<String, Object> values) {
-        final StringBuilder sb = new StringBuilder(String.format("INSERT INTO %s ", tableName));
-        log.info("Inserting into table {}", tableName);
-        values.forEach((k, v) -> log.info("\t{} = {}", k, v));
-        sb.append("(" + values.keySet().stream().collect(Collectors.joining(",")) + ")");
-        sb.append(" VALUES (" + values.values()
+    void insertInto_internal(InsertRow i) {
+        StringBuilder sb = new StringBuilder(String.format("INSERT INTO %s.%s ", currentKS, i.getTableName()));
+        log.info("Inserting into table {}.{}", currentKS, i.getTableName());
+        i.getValues().forEach((k, v) -> log.info("\t{} = {}", k, v));
+        sb.append("(" + i.getValues().keySet().stream().collect(Collectors.joining(",")) + ")");
+        sb.append(" VALUES (" + i.getValues().values()
                 .stream()
                 .map(v -> (v instanceof String) ? "'" + v + "'" : v.toString())
                 .collect(Collectors.joining(","))+ ")");

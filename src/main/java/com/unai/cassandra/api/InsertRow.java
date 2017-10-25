@@ -1,16 +1,12 @@
 package com.unai.cassandra.api;
 
-import com.sun.corba.se.impl.io.TypeMismatchException;
 import com.unai.cassandra.api.exception.ColumnUndefinedException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.InputMismatchException;
 import java.util.Map;
 
 public class InsertRow {
-
-    private Logger log = LoggerFactory.getLogger(InsertRow.class);
 
     private CassandraClient client;
 
@@ -36,7 +32,7 @@ public class InsertRow {
     public InsertRow value(Object o) {
         if (tempColumn == null) throw new ColumnUndefinedException();
         if (!ClassCaster.valueOf(columns.get(tempColumn)).javaClass().isInstance(o))
-            throw new TypeMismatchException(String.format("Expected type %s", columns.get(tempColumn)));
+            throw new InputMismatchException(String.format("Expected type %s", columns.get(tempColumn)));
         values.put(tempColumn, o);
         this.tempColumn = null;
         return this;
@@ -51,7 +47,15 @@ public class InsertRow {
     }
 
     public void save() {
-        client.insertInto_internal(tableName, values);
+        client.insertInto_internal(this);
+    }
+
+    String getTableName() {
+        return this.tableName;
+    }
+
+    Map<String, Object> getValues() {
+        return values;
     }
 
 }

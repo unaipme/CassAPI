@@ -6,15 +6,14 @@ public class CassandraBulkWrite {
 
     public static void main(String [] args) {
         try (CassandraClient client = new CassandraClient(args)) {
-           client.createKeyspace("ks_prueba");
+            client.createKeyspace("ks_prueba");
             client.useKeyspace("ks_prueba");
-            client.createTable("tabla_prueba")
-                    .withIntegerColumn("id").whichIsPrimaryKey()
+            client.createTable("tabla_prueba").ifNotExists()
+                    .withIntegerColumn("id").whichIsPartitionKey()
                     .withStringColumn("name")
                     .withBooleanColumn("isStudent")
                     .withDoubleColumn("salary")
                     .save();
-           client.useKeyspace("ks_prueba");
            client.insertInto("tabla_prueba")
                    .forColumn("id").value(1)
                    .forColumn("name").value("Unai")

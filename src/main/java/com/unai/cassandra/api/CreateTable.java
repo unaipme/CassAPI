@@ -1,5 +1,6 @@
 package com.unai.cassandra.api;
 
+import com.unai.cassandra.api.exception.AlreadyKeyException;
 import com.unai.cassandra.api.exception.ColumnUndefinedException;
 
 import java.util.HashMap;
@@ -12,7 +13,9 @@ public class CreateTable {
     private CassandraClient client;
     private String tableName;
     private Map<String, String> columns;
-    private Set<String> primaryKeys;
+    private Set<String> partitionKeys;
+    private Set<String> clusteringKeys;
+    private boolean ifNotExists = false;
 
     private String lastColumn = null;
 
@@ -25,7 +28,13 @@ public class CreateTable {
         this.tableName = name;
         this.client = client;
         this.columns = new HashMap<>();
-        this.primaryKeys = new HashSet<>();
+        this.partitionKeys = new HashSet<>();
+        this.clusteringKeys = new HashSet<>();
+    }
+
+    public CreateTable ifNotExists() {
+        this.ifNotExists = true;
+        return this;
     }
 
     public CreateTable withBooleanColumn(String name) {
@@ -52,25 +61,65 @@ public class CreateTable {
         return this;
     }
 
-    public CreateTable whichIsPrimaryKey() {
+    public CreateTable whichIsPartitionKey() {
         if (lastColumn == null) throw new ColumnUndefinedException();
-        withPrimaryKey(this.lastColumn);
-        return this;
+        return withPartitionKey(this.lastColumn);
     }
 
-    public CreateTable withPrimaryKey(String name) {
+    public CreateTable withPartitionKey(String name) {
         if (columns.get(name) == null) throw new ColumnUndefinedException(name);
-        primaryKeys.add(name);
+        if (isAlreadyKey(name)) throw new AlreadyKeyException();
+        partitionKeys.add(name);
         return this;
     }
 
-    public CreateTable withPrimaryKeys(String... names) {
-        for (String name : names) withPrimaryKey(name);
+    public CreateTable withPartitionKeys(String... names) {
+        for (String name : names) withPartitionKey(name);
         return this;
+    }
+
+    public CreateTable whichIsClusteringKey() {
+        if (lastColumn == null) throw new ColumnUndefinedException();
+        return withClusteringKey(lastColumn);
+    }
+
+    public CreateTable withClusteringKey(String name) {
+        if (columns.get(name) == null) throw new ColumnUndefinedException(name);
+        if (isAlreadyKey(name)) throw new AlreadyKeyException();
+        clusteringKeys.add(name);
+        return this;
+    }
+
+    public CreateTable withClusteringKeys(String... names) {
+        for (String name : names) withClusteringKey(name);
+        return this;
+    }
+
+    private boolean isAlreadyKey(String name) {
+        return partitionKeys.contains(name) || clusteringKeys.contains(name);
     }
 
     public void save() {
-        client.createTable_internal(tableName, columns, primaryKeys);
+        client.createTable_internal(this);
     }
 
+    String getTableName() {
+        return tableName;
+    }
+
+    Map<String, String> getColumns() {
+        return columns;
+    }
+
+    Set<String> getPartitionKeys() {
+        return partitionKeys;
+    }
+
+    Set<String> getClusteringKeys() {
+        return clusteringKeys;
+    }
+
+    boolean isIfNotExists() {
+        return ifNotExists;
+    }
 }
