@@ -102,7 +102,7 @@ public class CreateTable {
         return partitionKeys.contains(name) || clusteringKeys.contains(name);
     }
 
-    public void commit() {
+    public void execute() {
         client.createTable_internal(this);
     }
 

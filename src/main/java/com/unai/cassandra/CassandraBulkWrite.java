@@ -12,7 +12,7 @@ public class CassandraBulkWrite {
                     .withIntegerColumn("id").whichIsPartitionKey()
                     .withStringColumn("name").whichIsClusteringKey()
                     .withCounterColumn("counter")
-                    .commit();
+                    .execute();
             client.update("table_test")
                     .increment("counter").by(1)
                     .where("id").is(1)

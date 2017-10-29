@@ -46,7 +46,7 @@ public class InsertRow {
         return this;
     }
 
-    public void commit() {
+    public void execute() {
         client.insertInto_internal(this);
     }
 
