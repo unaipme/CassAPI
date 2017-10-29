@@ -1,11 +1,11 @@
 package com.unai.cassandra.api;
 
 import com.unai.cassandra.api.data.Table;
-import com.unai.cassandra.api.exception.LogicalClauseUndefinedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.unai.cassandra.api.DataType.*;
 
@@ -18,7 +18,6 @@ public class UpdateRow {
     private Map<String, UpdateColumn> updates;
     private List<String> conditions;
 
-    private String nextClause = "";
     private String tempColumn = null;
 
     UpdateRow(String tableName, CassandraClient client) {
@@ -42,24 +41,9 @@ public class UpdateRow {
         return new Incrementer(this);
     }
 
-    public Where where(String colName) {
-        if ("".equals(nextClause) && !conditions.isEmpty()) {
-            throw new LogicalClauseUndefinedException();
-        }
+    public UpdateWhere where(String colName) {
         this.tempColumn = colName;
-        return new Where(this);
-    }
-
-    public UpdateRow and() {
-        this.nextClause = " AND ";
-        log.info("Next clause is set to AND");
-        return this;
-    }
-
-    public UpdateRow or() {
-        this.nextClause = " OR ";
-        log.info("Next clause is set to OR");
-        return this;
+        return new UpdateWhere(this);
     }
 
     private UpdateRow to(Object o, boolean increment) {
@@ -67,15 +51,19 @@ public class UpdateRow {
         return this;
     }
 
-    private UpdateRow where(String comparator, Object o) {
-        String nextCondition = String.format("%s %s %s %s", nextClause, tempColumn, comparator, o.toString());
+    private UpdateRow where(String clause, String comparator, Object o) {
+        String nextCondition = String.format("%s %s %s %s", tempColumn, comparator, o.toString(), clause);
         conditions.add(nextCondition);
         log.info("Condition added: {}", nextCondition);
         this.tempColumn = null;
         return this;
     }
 
-    public void commit() {
+    private void setTempColumn(String colName) {
+        this.tempColumn = colName;
+    }
+
+    public void execute() {
         client.update_interal(this);
     }
 
@@ -136,118 +124,41 @@ public class UpdateRow {
 
     }
 
-    public static class Where {
+    public static class UpdateWhere extends Where<UpdateRow> {
 
-        private UpdateRow update;
-
-        private Where(UpdateRow update) {
-            this.update = update;
+        private UpdateWhere(UpdateRow update) {
+            super(update);
         }
 
-        private String treatString(String s) {
-            return "'" + s.replaceAll("'", "''") + "'";
+        protected WhereClause<UpdateWhere, UpdateRow> end(String comparator, Object... o) {
+            Object aux;
+            if (o.length > 1 && comparator.trim().equals("IN"))
+                aux = "(" + Arrays.asList(o)
+                        .stream()
+                        .map(Object::toString)
+                        .collect(Collectors.joining(",")) + ")";
+            else if (TEXT.javaClass().isInstance(o[0])) aux = treatString(o[0].toString());
+            else aux = o[0];
+            return new WhereClause<UpdateWhere, UpdateRow>() {
+                @Override
+                public UpdateWhere and(String colName) {
+                    getCaller().where(" AND ", comparator, aux).setTempColumn(colName);
+                    return new UpdateWhere(getCaller());
+                }
+
+                @Override
+                public UpdateWhere or(String colName) {
+                    getCaller().where(" OR ", comparator, aux).setTempColumn(colName);
+                    return new UpdateWhere(getCaller());
+                }
+
+                @Override
+                public UpdateRow then() {
+                    return getCaller().where("", comparator, aux);
+                }
+            };
         }
 
-        private UpdateRow end(String comparator, Object o) {
-            if (TEXT.javaClass().isInstance(o)) return update.where(comparator, treatString(o.toString()));
-            else return update.where(comparator, o);
-        }
-
-        public UpdateRow is(Object o) {
-            return end("=", o);
-        }
-
-        public UpdateRow is(int i) {
-            return is(Integer.valueOf(i));
-        }
-
-        public UpdateRow is(double d) {
-            return is(Double.valueOf(d));
-        }
-
-        public UpdateRow is(boolean b) {
-            return is(Boolean.valueOf(b));
-        }
-
-        /*
-        public UpdateRow isNot(Object o) {
-            return end("!=", o);
-        }
-
-        public UpdateRow isNot(int i) {
-            return isNot(Integer.valueOf(i));
-        }
-
-        public UpdateRow isNot(double d) {
-            return isNot(Double.valueOf(d));
-        }
-
-        public UpdateRow isNot(boolean b) {
-            return isNot(Boolean.valueOf(b));
-        }
-        */
-
-        public UpdateRow greaterThan(Object o) {
-            return end(">", o);
-        }
-
-        public UpdateRow greaterThan(int i) {
-            return greaterThan(Integer.valueOf(i));
-        }
-
-        public UpdateRow greaterThan(double d) {
-            return greaterThan(Double.valueOf(d));
-        }
-
-        public UpdateRow greaterThan(boolean b) {
-            return greaterThan(Boolean.valueOf(b));
-        }
-        public UpdateRow greaterThanOrEquals(Object o) {
-            return end(">=", o);
-        }
-
-        public UpdateRow greaterThanOrEquals(int i) {
-            return greaterThanOrEquals(Integer.valueOf(i));
-        }
-
-        public UpdateRow greaterThanOrEquals(double d) {
-            return greaterThanOrEquals(Double.valueOf(d));
-        }
-
-        public UpdateRow greaterThanOrEquals(boolean b) {
-            return greaterThanOrEquals(Boolean.valueOf(b));
-        }
-
-        public UpdateRow lessThan(Object o) {
-            return end("<", o);
-        }
-
-        public UpdateRow lessThan(int i) {
-            return lessThan(Integer.valueOf(i));
-        }
-
-        public UpdateRow lessThan(double d) {
-            return lessThan(Double.valueOf(d));
-        }
-
-        public UpdateRow lessThan(boolean b) {
-            return lessThan(Boolean.valueOf(b));
-        }
-        public UpdateRow lessThanOrEquals(Object o) {
-            return end("<=", o);
-        }
-
-        public UpdateRow lessThanOrEquals(int i) {
-            return lessThanOrEquals(Integer.valueOf(i));
-        }
-
-        public UpdateRow lessThanOrEquals(double d) {
-            return lessThanOrEquals(Double.valueOf(d));
-        }
-
-        public UpdateRow lessThanOrEquals(boolean b) {
-            return lessThanOrEquals(Boolean.valueOf(b));
-        }
     }
 
 }

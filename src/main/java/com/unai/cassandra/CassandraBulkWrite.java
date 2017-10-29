@@ -6,22 +6,18 @@ public class CassandraBulkWrite {
 
     public static void main(String [] args) {
         try (CassandraClient client = new CassandraClient(args)) {
-            client.useKeyspace("ks_prueba");
-            /*
-            client.dropTable("tabla_prueba").ifExists().commit();
-            client.createTable("tabla_prueba").ifNotExists()
+            client.createKeyspace("ks_test");
+            client.useKeyspace("ks_test");
+            client.createTable("table_test").ifNotExists()
                     .withIntegerColumn("id").whichIsPartitionKey()
                     .withStringColumn("name").whichIsClusteringKey()
-                    .withBooleanColumn("isStudent").whichIsClusteringKey()
-                    .withCounterColumn("salary")
+                    .withCounterColumn("counter")
                     .commit();
-            */
-            client.update("tabla_prueba")
-                    .increment("salary").by(1)
-                    .where("id").is(1).and()
-                    .where("name").is("Unai").and()
-                    .where("isStudent").is(true)
-                    .commit();
+            client.update("table_test")
+                    .increment("counter").by(1)
+                    .where("id").is(1)
+                    .and("name").is("Unai")
+                    .then().execute();
         } catch (Exception e) {
             e.printStackTrace();
         }

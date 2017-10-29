@@ -22,7 +22,7 @@ public class InsertRow {
     private String tempColumn = null;
 
     InsertRow(String tableName, CassandraClient client) {
-        if (table.getColumns().entrySet().stream().anyMatch(c -> c.getValue().equals(COUNTER)))
+        if (table.getColumns().stream().anyMatch(c -> c.getType().equals(COUNTER)))
             throw new InsertWithCounterException(tableName);
         this.tableName = tableName;
         this.client = client;
